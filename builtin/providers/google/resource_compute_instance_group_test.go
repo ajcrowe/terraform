@@ -11,7 +11,7 @@ import (
 )
 
 func TestAccInstanceGroup_basic(t *testing.T) {
-	var manager compute.InstanceGroup
+	var instanceGroup compute.InstanceGroup
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -22,9 +22,9 @@ func TestAccInstanceGroup_basic(t *testing.T) {
 				Config: testAccInstanceGroup_basic,
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckInstanceGroupExists(
-						"google_compute_instance_group.ig-basic", &manager),
+						"google_compute_instance_group.ig-basic", &instanceGroup),
 					testAccCheckInstanceGroupExists(
-						"google_compute_instance_group.ig-empty", &manager),
+						"google_compute_instance_group.ig-empty", &instanceGroup),
 				),
 			},
 		},
@@ -32,7 +32,7 @@ func TestAccInstanceGroup_basic(t *testing.T) {
 }
 
 func TestAccInstanceGroup_update(t *testing.T) {
-	var manager compute.InstanceGroup
+	var instanceGroup compute.InstanceGroup
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -43,24 +43,24 @@ func TestAccInstanceGroup_update(t *testing.T) {
 				Config: testAccInstanceGroup_update,
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckInstanceGroupExists(
-						"google_compute_instance_group.ig-update", &manager),
+						"google_compute_instance_group.ig-update", &instanceGroup),
 					testAccCheckInstanceGroupNamedPorts(
 						"google_compute_instance_group.ig-update",
 						map[string]int64{"http": 8080, "https": 8443},
-						&manager),
+						&instanceGroup),
 				),
 			},
 			resource.TestStep{
 				Config: testAccInstanceGroup_update2,
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckInstanceGroupExists(
-						"google_compute_instance_group.ig-update", &manager),
+						"google_compute_instance_group.ig-update", &instanceGroup),
 					testAccCheckInstanceGroupUpdated(
-						"google_compute_instance_group.ig-update", 3, &manager),
+						"google_compute_instance_group.ig-update", 3, &instanceGroup),
 					testAccCheckInstanceGroupNamedPorts(
 						"google_compute_instance_group.ig-update",
 						map[string]int64{"http": 8081, "test": 8444},
-						&manager),
+						&instanceGroup),
 				),
 			},
 		},
@@ -71,7 +71,7 @@ func testAccCheckInstanceGroupDestroy(s *terraform.State) error {
 	config := testAccProvider.Meta().(*Config)
 
 	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "google_compute_instance_group_manager" {
+		if rs.Type != "google_compute_instance_group" {
 			continue
 		}
 		_, err := config.clientCompute.InstanceGroups.Get(
@@ -84,7 +84,7 @@ func testAccCheckInstanceGroupDestroy(s *terraform.State) error {
 	return nil
 }
 
-func testAccCheckInstanceGroupExists(n string, manager *compute.InstanceGroup) resource.TestCheckFunc {
+func testAccCheckInstanceGroupExists(n string, instanceGroup *compute.InstanceGroup) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
@@ -107,13 +107,13 @@ func testAccCheckInstanceGroupExists(n string, manager *compute.InstanceGroup) r
 			return fmt.Errorf("InstanceGroup not found")
 		}
 
-		*manager = *found
+		*instanceGroup = *found
 
 		return nil
 	}
 }
 
-func testAccCheckInstanceGroupUpdated(n string, size int64, manager *compute.InstanceGroup) resource.TestCheckFunc {
+func testAccCheckInstanceGroupUpdated(n string, size int64, instanceGroup *compute.InstanceGroup) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
@@ -126,7 +126,7 @@ func testAccCheckInstanceGroupUpdated(n string, size int64, manager *compute.Ins
 
 		config := testAccProvider.Meta().(*Config)
 
-		manager, err := config.clientCompute.InstanceGroups.Get(
+		instanceGroup, err := config.clientCompute.InstanceGroups.Get(
 			config.Project, rs.Primary.Attributes["zone"], rs.Primary.ID).Do()
 		if err != nil {
 			return err
@@ -134,7 +134,7 @@ func testAccCheckInstanceGroupUpdated(n string, size int64, manager *compute.Ins
 
 		// Cannot check the target pool as the instance creation is asynchronous.  However, can
 		// check the target_size.
-		if manager.Size != size {
+		if instanceGroup.Size != size {
 			return fmt.Errorf("instance count incorrect")
 		}
 
@@ -142,7 +142,7 @@ func testAccCheckInstanceGroupUpdated(n string, size int64, manager *compute.Ins
 	}
 }
 
-func testAccCheckInstanceGroupNamedPorts(n string, np map[string]int64, manager *compute.InstanceGroup) resource.TestCheckFunc {
+func testAccCheckInstanceGroupNamedPorts(n string, np map[string]int64, instanceGroup *compute.InstanceGroup) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
@@ -155,14 +155,14 @@ func testAccCheckInstanceGroupNamedPorts(n string, np map[string]int64, manager 
 
 		config := testAccProvider.Meta().(*Config)
 
-		manager, err := config.clientCompute.InstanceGroups.Get(
+		instanceGroup, err := config.clientCompute.InstanceGroups.Get(
 			config.Project, rs.Primary.Attributes["zone"], rs.Primary.ID).Do()
 		if err != nil {
 			return err
 		}
 
 		var found bool
-		for _, namedPort := range manager.NamedPorts {
+		for _, namedPort := range instanceGroup.NamedPorts {
 			found = false
 			for name, port := range np {
 				if namedPort.Name == name && namedPort.Port == port {
