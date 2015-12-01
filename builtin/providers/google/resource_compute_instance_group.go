@@ -30,11 +30,6 @@ func resourceComputeInstanceGroup() *schema.Resource {
 				ForceNew: true,
 			},
 
-			"fingerprint": &schema.Schema{
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-
 			"named_port": &schema.Schema{
 				Type:     schema.TypeList,
 				Optional: true,
@@ -56,7 +51,6 @@ func resourceComputeInstanceGroup() *schema.Resource {
 			"instances": &schema.Schema{
 				Type:     schema.TypeList,
 				Optional: true,
-				ForceNew: false,
 				Elem:     &schema.Schema{Type: schema.TypeString},
 			},
 
@@ -183,7 +177,6 @@ func resourceComputeInstanceGroupRead(d *schema.ResourceData, meta interface{}) 
 	}
 
 	// Set computed fields
-	d.Set("fingerprint", instanceGroup.Fingerprint)
 	d.Set("network", instanceGroup.Network)
 	d.Set("size", instanceGroup.Size)
 	d.Set("self_link", instanceGroup.SelfLink)
