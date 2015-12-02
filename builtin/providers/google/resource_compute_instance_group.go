@@ -100,6 +100,68 @@ func getInstanceReferences(instanceUrls []string) (refs []*compute.InstanceRefer
 	return refs
 }
 
+func getInstanceGroupMemberUrls(d *schema.ResourceData, config *Config) ([]string, error) {
+	var memberUrls []string
+	members, err := config.clientCompute.InstanceGroups.ListInstances(
+		config.Project, d.Get("zone").(string), d.Id(), &compute.InstanceGroupsListInstancesRequest{
+			InstanceState: "ALL",
+		}).Do()
+	if err != nil {
+		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == 404 {
+			// The resource doesn't have any instances
+			d.Set("instances", nil)
+			return memberUrls, nil
+		}
+
+		return memberUrls, fmt.Errorf("Error reading InstanceGroup Members: %s", err)
+	}
+
+	for _, member := range members.Items {
+		memberUrls = append(memberUrls, member.Instance)
+	}
+	return memberUrls, nil
+}
+
+func calcInstanceAddRemove(from []string, to []string, current []string) ([]string, []string) {
+	add := make([]string, 0)
+	remove := make([]string, 0)
+
+	for _, u := range to {
+		found := false
+		for _, v := range from {
+			if u == v {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// sanity check not already present
+			dupe := false
+			for _, c := range current {
+				if c == u {
+					dupe = true
+				}
+			}
+			if !dupe {
+				add = append(add, u)
+			}
+		}
+	}
+	for _, u := range from {
+		found := false
+		for _, v := range to {
+			if u == v {
+				found = true
+				break
+			}
+		}
+		if !found {
+			remove = append(remove, u)
+		}
+	}
+	return add, remove
+}
+
 func resourceComputeInstanceGroupCreate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
@@ -163,6 +225,7 @@ func resourceComputeInstanceGroupCreate(d *schema.ResourceData, meta interface{}
 func resourceComputeInstanceGroupRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
+	// retreive instance group
 	instanceGroup, err := config.clientCompute.InstanceGroups.Get(
 		config.Project, d.Get("zone").(string), d.Id()).Do()
 	if err != nil {
@@ -175,6 +238,32 @@ func resourceComputeInstanceGroupRead(d *schema.ResourceData, meta interface{}) 
 
 		return fmt.Errorf("Error reading InstanceGroup: %s", err)
 	}
+	// retreive instance group members
+	memberUrls, err := getInstanceGroupMemberUrls(d, config)
+	if err != nil {
+		return err
+	}
+
+	// check for manually removed instances we care about and update local state
+	if v, ok := d.GetOk("instances"); ok {
+		// get the instance urls present in the state
+		stateUrls, err := convertInstances(config, convertStringArr(v.([]interface{})))
+		if err != nil {
+			return err
+		}
+		// update the state with any manually removed instances that are defined
+		var liveMembers []string
+		for _, s := range stateUrls {
+			// for each instance in state check it actually exists
+			for _, r := range memberUrls {
+				if r == s {
+					liveMembers = append(liveMembers, r)
+					break
+				}
+			}
+		}
+		d.Set("instances", realMembers)
+	}
 
 	// Set computed fields
 	d.Set("network", instanceGroup.Network)
@@ -183,13 +272,19 @@ func resourceComputeInstanceGroupRead(d *schema.ResourceData, meta interface{}) 
 
 	return nil
 }
+
 func resourceComputeInstanceGroupUpdate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
+
+	// refresh the state incase referenced instances have been removed in the run
+	err := resourceComputeInstanceGroupRead(d, meta)
+	if err != nil {
+		return fmt.Errorf("Error reading InstanceGroup: %s", err)
+	}
 
 	d.Partial(true)
 
 	if d.HasChange("instances") {
-		// to-do check for no instances
 		from_, to_ := d.GetChange("instances")
 
 		from := convertStringArr(from_.([]interface{}))
@@ -203,8 +298,10 @@ func resourceComputeInstanceGroupUpdate(d *schema.ResourceData, meta interface{}
 		if err != nil {
 			return err
 		}
+		//  current live members
+		liveUrls, err := getInstanceGroupMemberUrls(d, config)
 
-		add, remove := calcAddRemove(fromUrls, toUrls)
+		add, remove := calcInstanceAddRemove(fromUrls, toUrls, liveUrls)
 
 		if len(remove) > 0 {
 			removeReq := &compute.InstanceGroupsRemoveInstancesRequest{
