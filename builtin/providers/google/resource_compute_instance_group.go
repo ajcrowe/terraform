@@ -119,10 +119,13 @@ func getInstanceGroupMemberUrls(d *schema.ResourceData, config *Config) ([]strin
 	for _, member := range members.Items {
 		memberUrls = append(memberUrls, member.Instance)
 	}
+	log.Printf("[DEBUG] InstanceGroup members: %v", memberUrls)
 	return memberUrls, nil
 }
 
 func calcInstanceAddRemove(from []string, to []string, current []string) ([]string, []string) {
+	log.Printf("[DEBUG] InstanceGroup calculating instance changes: from:%v to:%v current:%v", from, to, current)
+
 	add := make([]string, 0)
 	remove := make([]string, 0)
 
@@ -251,18 +254,19 @@ func resourceComputeInstanceGroupRead(d *schema.ResourceData, meta interface{}) 
 		if err != nil {
 			return err
 		}
-		// update the state with any manually removed instances that are defined
+		// update the state removing an instances that are no long present
 		var liveMembers []string
 		for _, s := range stateUrls {
 			// for each instance in state check it actually exists
 			for _, r := range memberUrls {
+				log.Printf("[DEBUG] InstanceGroup matching live instance: %s to state instance: %s", r, s)
 				if r == s {
 					liveMembers = append(liveMembers, r)
 					break
 				}
 			}
 		}
-		d.Set("instances", realMembers)
+		d.Set("instances", liveMembers)
 	}
 
 	// Set computed fields
@@ -276,7 +280,7 @@ func resourceComputeInstanceGroupRead(d *schema.ResourceData, meta interface{}) 
 func resourceComputeInstanceGroupUpdate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	// refresh the state incase referenced instances have been removed in the run
+	// refresh the state incase referenced instances have been removed earlier in the run
 	err := resourceComputeInstanceGroupRead(d, meta)
 	if err != nil {
 		return fmt.Errorf("Error reading InstanceGroup: %s", err)
@@ -298,7 +302,7 @@ func resourceComputeInstanceGroupUpdate(d *schema.ResourceData, meta interface{}
 		if err != nil {
 			return err
 		}
-		//  current live members
+		// get current live members
 		liveUrls, err := getInstanceGroupMemberUrls(d, config)
 
 		add, remove := calcInstanceAddRemove(fromUrls, toUrls, liveUrls)
@@ -349,8 +353,7 @@ func resourceComputeInstanceGroupUpdate(d *schema.ResourceData, meta interface{}
 		namedPorts := getNamedPorts(d.Get("named_port").([]interface{}))
 
 		namedPortsReq := &compute.InstanceGroupsSetNamedPortsRequest{
-			Fingerprint: d.Get("fingerprint").(string),
-			NamedPorts:  namedPorts,
+			NamedPorts: namedPorts,
 		}
 
 		log.Printf("[DEBUG] InstanceGroup updating named ports request: %#v", namedPortsReq)
